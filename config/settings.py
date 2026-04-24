@@ -9,17 +9,47 @@ from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# --- Магические числа, вынесенные в константы ---
+_DEFAULT_MCP_CONNECT_TIMEOUT = 5.0
+_DEFAULT_MCP_READ_TIMEOUT = 30.0
+_DEFAULT_MCP_MAX_RETRIES = 3
+_DEFAULT_MCP_RETRY_BACKOFF = 1.5
+_DEFAULT_MCP_RETRY_MAX_DELAY = 30.0
+_DEFAULT_CIRCUIT_BREAKER_THRESHOLD = 5
+_DEFAULT_CIRCUIT_BREAKER_RESET = 60.0
+
+_DEFAULT_LLM_TEMPERATURE = 0.1
+_DEFAULT_LLM_MAX_TOKENS = 4096
+_DEFAULT_LLM_CACHE_SIZE = 50
+_DEFAULT_LLM_TIMEOUT = 30.0
+
+_DEFAULT_HTTP_PORT = 8080
+_DEFAULT_RATE_LIMIT = 60
+_DEFAULT_LOG_LEVEL = "INFO"
+
+_DEFAULT_MEMORY_ENGINE = "local"
+_DEFAULT_MEMORY_DB = "~/.soc_agent/memory.db"
+_DEFAULT_MEMORY_MAX_EPISODES = 500
+_DEFAULT_MEMORY_TTL = 30.0
+_DEFAULT_MEMORY_DECAY = 0.1
+_DEFAULT_MEMORY_TOP_K = 10
+
+_DEFAULT_SEC_QUERY_LENGTH = 4096
+_DEFAULT_SEC_TOKEN_ROTATION = 30
+
+# --- Настройки ---
+
 class MCPConnectionSettings(BaseSettings):
-    # Поля читаются из env: MCP_URL, MCP_OWN_URL, MCP_CONNECT_TIMEOUT, ...
+    """Настройки подключения к MCP серверу"""
     url: str = "http://127.0.0.1:3000/mcp"
     own_url: str = "http://127.0.0.1:8000/mcp"
-    connect_timeout: float = 5.0
-    read_timeout: float = 30.0
-    max_retries: int = 3
-    retry_backoff_base: float = 1.5
-    retry_max_delay: float = 30.0
-    circuit_breaker_threshold: int = 5
-    circuit_breaker_reset_seconds: float = 60.0
+    connect_timeout: float = _DEFAULT_MCP_CONNECT_TIMEOUT
+    read_timeout: float = _DEFAULT_MCP_READ_TIMEOUT
+    max_retries: int = _DEFAULT_MCP_MAX_RETRIES
+    retry_backoff_base: float = _DEFAULT_MCP_RETRY_BACKOFF
+    retry_max_delay: float = _DEFAULT_MCP_RETRY_MAX_DELAY
+    circuit_breaker_threshold: int = _DEFAULT_CIRCUIT_BREAKER_THRESHOLD
+    circuit_breaker_reset_seconds: float = _DEFAULT_CIRCUIT_BREAKER_RESET
 
     model_config = SettingsConfigDict(
         env_prefix="MCP_",
@@ -30,13 +60,14 @@ class MCPConnectionSettings(BaseSettings):
 
 
 class LLMSettings(BaseSettings):
+    """Настройки LLM"""
     api_key: Optional[SecretStr] = None  # LLM_API_KEY
     model: str = "deepseek-chat"           # LLM_MODEL
     api_base: str = "https://api.deepseek.com/v1"
-    temperature: float = 0.1
-    max_tokens: int = 4096
-    cache_size: int = 50
-    timeout_seconds: float = 30.0
+    temperature: float = _DEFAULT_LLM_TEMPERATURE
+    max_tokens: int = _DEFAULT_LLM_MAX_TOKENS
+    cache_size: int = _DEFAULT_LLM_CACHE_SIZE
+    timeout_seconds: float = _DEFAULT_LLM_TIMEOUT
 
     model_config = SettingsConfigDict(
         env_prefix="LLM_",
@@ -47,10 +78,11 @@ class LLMSettings(BaseSettings):
 
 
 class HTTPSettings(BaseSettings):
+    """Настройки HTTP сервера"""
     host: str = "0.0.0.0"       # HTTP_HOST
-    port: int = 8080             # HTTP_PORT
-    log_level: str = "INFO"     # HTTP_LOG_LEVEL
-    rate_limit_per_minute: int = 60
+    port: int = _DEFAULT_HTTP_PORT
+    log_level: str = _DEFAULT_LOG_LEVEL
+    rate_limit_per_minute: int = _DEFAULT_RATE_LIMIT
     cors_origins: List[str] = ["*"]
 
     model_config = SettingsConfigDict(
@@ -62,13 +94,14 @@ class HTTPSettings(BaseSettings):
 
 
 class MemorySettings(BaseSettings):
-    engine: Literal["local", "alaya", "none"] = "local"
-    db_path: str = "~/.soc_agent/memory.db"
-    max_episodes: int = 500
-    cache_ttl: float = 30.0
+    """Настройки памяти"""
+    engine: Literal["local", "alaya", "none"] = _DEFAULT_MEMORY_ENGINE
+    db_path: str = _DEFAULT_MEMORY_DB
+    max_episodes: int = _DEFAULT_MEMORY_MAX_EPISODES
+    cache_ttl: float = _DEFAULT_MEMORY_TTL
     enable_forgetting: bool = True
-    decay_rate: float = 0.1
-    retrieval_top_k: int = 10
+    decay_rate: float = _DEFAULT_MEMORY_DECAY
+    retrieval_top_k: int = _DEFAULT_MEMORY_TOP_K
 
     model_config = SettingsConfigDict(
         env_prefix="MEMORY_",
@@ -79,13 +112,14 @@ class MemorySettings(BaseSettings):
 
 
 class SecuritySettings(BaseSettings):
+    """Настройки безопасности"""
     active_response_require_confirmation: bool = True
     active_response_require_2fa: bool = True
     audit_log_enabled: bool = True
-    audit_log_path: str = "~/.soc_agent/audit.log"
-    max_query_length: int = 4096
+    audit_log_path: str = _DEFAULT_MEMORY_DB.rsplit("memory", 1)[0] + "audit.log"
+    max_query_length: int = _DEFAULT_SEC_QUERY_LENGTH
     prompt_injection_check: bool = True
-    token_rotation_days: int = 30
+    token_rotation_days: int = _DEFAULT_SEC_TOKEN_ROTATION
 
     model_config = SettingsConfigDict(
         env_prefix="SEC_",

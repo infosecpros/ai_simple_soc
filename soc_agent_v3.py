@@ -98,6 +98,15 @@ class LLMCache:
 # MCP Клиент
 # ============================================================
 
+from services.exceptions import (
+    MCPConnectionError,
+    MCPToolNotFoundError,
+    MCPToolCallError,
+    MCPTimeoutError,
+    SOCAgentError,
+)
+
+
 class MCPClient:
     """Клиент для подключения к MCP-серверу"""
 
@@ -109,23 +118,34 @@ class MCPClient:
         self._initialized = False
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
-        """Создает сессию если её нет и гарантирует её закрытие при ошибках"""
+        """Создает сессию если её нет"""
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
         return self._session
 
     async def connect(self) -> bool:
+        """Подключение к MCP серверу с обработкой ошибок"""
         try:
             session = await self._ensure_session()
             async with session.get(f"{self.server_url}/health", timeout=ClientTimeout(total=5)) as resp:
                 if resp.status == 200:
-                    logger.info(f"✅ Подключен к MCP серверу: {self.server_url}")
+                    logger.info(f"Подключен к MCP серверу: {self.server_url}")
                     self._initialized = True
                     await self._load_tools()
                     return True
+                raise MCPConnectionError(self.server_url, Exception(f"HTTP {resp.status}"))
+        except asyncio.TimeoutError:
+            logger.warning(f"MCP сервер {self.server_url} не отвечает (таймаут 5с)")
+        except aiohttp.ClientError as e:
+            logger.warning(f"MCP сервер {self.server_url} недоступен: {e}")
+        except MCPConnectionError:
+            raise
         except Exception as e:
-            logger.warning(f"⚠️ MCP сервер {self.server_url} недоступен: {e}")
-            await self.close()
+            logger.warning(f"MCP сервер {self.server_url} ошибка: {e}")
+        finally:
+            # Если не удалось подключиться — закрываем сессию
+            if not self._initialized:
+                await self.close()
 
         self._initialized = False
         return False
@@ -138,17 +158,31 @@ class MCPClient:
                 if resp.status == 200:
                     data = await resp.json()
                     self._tools = data.get("tools", [])
-                    logger.info(f"✅ Загружено {len(self._tools)} инструментов")
-        except Exception as e:
+                    logger.info(f"Загружено {len(self._tools)} инструментов")
+                else:
+                    logger.warning(f"MCP tools вернул HTTP {resp.status}")
+        except asyncio.TimeoutError:
+            logger.error(f"Таймаут загрузки инструментов с {self.server_url}")
+        except aiohttp.ClientError as e:
             logger.error(f"Ошибка загрузки инструментов: {e}")
-            await self.close()
+        except Exception as e:
+            logger.error(f"Неизвестная ошибка загрузки инструментов: {e}")
 
     def get_tools_list(self) -> List[Dict[str, Any]]:
         return self._tools
 
+    def get_tool_names(self) -> List[str]:
+        return [t.get("name", "") for t in self._tools]
+
     async def call_tool(self, tool_name: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Вызов инструмента MCP с детальной обработкой ошибок"""
         if not self._initialized:
-            return {"error": f"MCP сервер {self.name} не инициализирован"}
+            raise MCPConnectionError(self.server_url, Exception("Клиент не инициализирован"))
+
+        # Проверяем, что инструмент существует
+        tool_names = self.get_tool_names()
+        if tool_names and tool_name not in tool_names:
+            raise MCPToolNotFoundError(tool_name, self.name)
 
         try:
             session = await self._ensure_session()
@@ -163,16 +197,15 @@ class MCPClient:
                 timeout=ClientTimeout(total=30)
             ) as resp:
                 if resp.status == 200:
-                    result = await resp.json()
-                    return result
+                    return await resp.json()
                 else:
                     error_text = await resp.text()
-                    return {"error": f"HTTP {resp.status}: {error_text}"}
+                    raise MCPToolCallError(tool_name, resp.status, error_text)
 
         except asyncio.TimeoutError:
-            return {"error": f"Таймаут при вызове {tool_name}"}
-        except Exception as e:
-            return {"error": str(e)}
+            raise MCPTimeoutError(tool_name, 30.0)
+        except aiohttp.ClientError as e:
+            raise MCPConnectionError(self.server_url, e)
 
     async def close(self):
         """Гарантированное закрытие сессии"""
@@ -531,21 +564,25 @@ class SOCAgentV3:
         return results
     
     async def _call_mcp_tool(self, tool_name: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Вызов инструмента через MCP сервер"""
+        """Вызов инструмента через MCP сервер с кастомными исключениями"""
         
         # Пробуем wazuh-mcp
         if "wazuh-mcp" in self.mcp_servers:
-            result = await self.mcp_servers["wazuh-mcp"].call_tool(tool_name, parameters)
-            if "error" not in result or "таймаут" not in str(result.get("error", "")).lower():
-                return result
+            try:
+                return await self.mcp_servers["wazuh-mcp"].call_tool(tool_name, parameters)
+            except (MCPToolNotFoundError, MCPConnectionError, MCPTimeoutError) as e:
+                logger.warning(f"Ошибка wazuh-mcp при вызове {tool_name}: {e} (code={e.code})")
+                # Пробуем own-mcp как fallback
+                pass
         
         # Пробуем own-mcp
         if "own-mcp" in self.mcp_servers:
-            result = await self.mcp_servers["own-mcp"].call_tool(tool_name, parameters)
-            if "error" not in result:
-                return result
+            try:
+                return await self.mcp_servers["own-mcp"].call_tool(tool_name, parameters)
+            except (MCPToolNotFoundError, MCPConnectionError, MCPTimeoutError) as e:
+                logger.warning(f"Ошибка own-mcp при вызове {tool_name}: {e} (code={e.code})")
         
-        return {"error": f"Инструмент {tool_name} недоступен"}
+        return {"error": f"Инструмент {tool_name} недоступен", "code": "mcp_unavailable"}
     
     # ============================================================
     # Генерация ответа (1 вызов LLM)

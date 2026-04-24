@@ -7,7 +7,7 @@ LLM-интеграция для SOC AI Agent
 import json
 import logging
 import os
-from typing import Dict, Any, List, Optional, Literal
+from typing import Dict, Any, List, Optional, Literal, TypeVar, Generic
 from datetime import datetime
 from dataclasses import dataclass, field
 from enum import Enum
@@ -21,6 +21,19 @@ from dotenv import load_dotenv
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+# Generic тип для результатов LLM
+T = TypeVar("T", bound=BaseModel)
+
+
+class LLMContext(BaseModel, Generic[T]):
+    """Контекст для LLM с типизированным результатом"""
+    session_id: str = ""
+    history: List[Dict[str, str]] = Field(default_factory=list)
+    tools_available: List[str] = Field(default_factory=list)
+    result_type: Optional[type[T]] = None
+
+    model_config = {"arbitrary_types_allowed": True}
 
 
 # ============================================================
@@ -201,8 +214,12 @@ class SOCLLMAgent:
     
     def _register_tools(self):
         """Регистрация инструментов для LLM агента"""
+        agent = self._agent
+        if agent is None:
+            logger.warning("LLM агент не инициализирован, инструменты не зарегистрированы")
+            return
         
-        @self._agent.tool_plain
+        @agent.tool_plain
         async def get_available_tools() -> str:
             """Получить список доступных инструментов безопасности"""
             if not self._tools_cache:
@@ -214,17 +231,16 @@ class SOCLLMAgent:
             
             return "\n".join(tools_summary)
         
-        @self._agent.tool_plain
+        @agent.tool_plain
         async def search_similar_incidents(query: str) -> str:
             """
             Поиск похожих инцидентов в истории
             Args:
                 query: Описание инцидента для поиска
             """
-            # TODO: Реализовать поиск в памяти
             return "История инцидентов пока недоступна"
         
-        @self._agent.tool_plain
+        @agent.tool_plain
         async def validate_tool_risk(tool_name: str, parameters: str) -> str:
             """
             Проверить риск использования инструмента
@@ -232,7 +248,6 @@ class SOCLLMAgent:
                 tool_name: Имя инструмента
                 parameters: Параметры в JSON
             """
-            # Определяем риск на основе имени инструмента
             risk_map = {
                 "wazuh_block_ip": "low (обратимо)",
                 "wazuh_isolate_host": "medium (обратимо)",
@@ -241,7 +256,6 @@ class SOCLLMAgent:
                 "wazuh_active_response": "high (необратимо)",
                 "wazuh_restart": "critical (необратимо)"
             }
-            
             risk = risk_map.get(tool_name, "low")
             return f"Риск инструмента {tool_name}: {risk}"
     
@@ -282,25 +296,25 @@ class SOCLLMAgent:
             })
             
             # Запускаем агента
-            if self._agent:
-                result = await self._agent.run(
-                    query,
-                    deps=context
-                )
-                
-                # В pydantic-ai результат через result.output
-                # Для типизированного результата нужно использовать result_type в run
-                if hasattr(result, 'output') and isinstance(result.output, AnalysisResult):
-                    analysis_result = result.output
-                else:
-                    # Если агент вернул текст, создаем AnalysisResult из ответа
-                    response_text = str(result.output) if result.output else str(result)
+            if self._agent is not None:
+                result = await self._agent.run(query)
+
+                # Безопасное извлечение результата из pydantic-ai
+                analysis_result = None
+                result_output = getattr(result, 'output', None)
+                if isinstance(result_output, AnalysisResult):
+                    analysis_result = result_output
+
+                if analysis_result is None:
+                    response_text = str(result)
                     analysis_result = AnalysisResult(
                         intent=self._fallback_intent_analysis(query),
-                        confidence=0.7,
-                        reasoning=response_text,
+                        confidence=0.5,
+                        reasoning=response_text[:500],
                         suggested_tools=[],
-                        parameters={}
+                        parameters={},
+                        requires_confirmation=False,
+                        risk_level="low",
                     )
                 
                 # Сохраняем результат в историю
@@ -508,18 +522,14 @@ class SOCLLMAgent:
 """
             
             # Генерируем ответ через LLM
-            if self._agent:
+            if self._agent is not None:
                 response = await self._agent.run(
                     f"На основе следующих данных сформируй понятный ответ для SOC аналитика:\n\n{context}",
-                    deps=AgentContext(
-                        available_tools=self._tools_cache,
-                        conversation_history=self.conversation_history[-5:],
-                        session_id=self.session_id
-                    )
                 )
                 
-                if response and response.output:
-                    return str(response.output)
+                response_out = getattr(response, 'output', None)
+                if response_out is not None:
+                    return str(response_out)
             
             return self._format_fallback_response(analysis, tool_results)
             
