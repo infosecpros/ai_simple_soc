@@ -129,6 +129,22 @@ class SecuritySettings(BaseSettings):
     )
 
 
+class AgentSettings(BaseSettings):
+    """Настройки агента"""
+    dialog_max_turns: int = 10
+    llm_cache_size: int = _DEFAULT_LLM_CACHE_SIZE
+    tool_cache_ttl_seconds: float = _DEFAULT_MEMORY_TTL
+    affirmative_keywords: List[str] = ["да", "yes", "ага", "ок", "ok", "okay", "хорошо",
+                                        "го", "давай", "согласен", "подтверждаю"]
+
+    model_config = SettingsConfigDict(
+        env_prefix="AGENT_",
+        extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
+
 class AppConfig(BaseSettings):
     """Агрегированная конфигурация приложения"""
 
@@ -137,6 +153,7 @@ class AppConfig(BaseSettings):
     http: HTTPSettings = HTTPSettings()
     memory: MemorySettings = MemorySettings()
     security: SecuritySettings = SecuritySettings()
+    agent: AgentSettings = AgentSettings()
 
     @classmethod
     def load(cls) -> "AppConfig":

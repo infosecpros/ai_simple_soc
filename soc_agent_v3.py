@@ -105,6 +105,8 @@ from services.exceptions import (
     MCPTimeoutError,
     SOCAgentError,
 )
+from services.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
+from config.settings import get_config
 
 
 class MCPClient:
@@ -196,11 +198,8 @@ class MCPClient:
                 json=payload,
                 timeout=ClientTimeout(total=30)
             ) as resp:
-                if resp.status == 200:
-                    return await resp.json()
-                else:
-                    error_text = await resp.text()
-                    raise MCPToolCallError(tool_name, resp.status, error_text)
+                resp.raise_for_status()  # ✅ Выбросит ClientResponseError при HTTP ошибке
+                return await resp.json()
 
         except asyncio.TimeoutError:
             raise MCPTimeoutError(tool_name, 30.0)
@@ -235,22 +234,6 @@ class SOCAgentV3:
     5. Безопасность - не логирует пароли/ключи
     6. Быстрые ответы на простые запросы
     """
-
-    def __init__(self):
-        self.llm_agent = SOCLLMAgent()
-        
-        self.mcp_servers: Dict[str, MCPClient] = {}
-        self._llm_cache = LLMCache(max_size=50)
-        
-        self.dialog_context = DialogContext(
-            session_id=f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        )
-        
-        self._tool_results_cache: Dict[str, Tuple[Any, float]] = {}
-        self._cache_ttl = 30.0
-        self.default_tools = []
-        
-        logger.info("🚀 Инициализация SOC AI Agent v3")
 
     async def initialize(self):
         """Инициализация агента и подключение к MCP серверам"""
@@ -563,27 +546,73 @@ class SOCAgentV3:
         
         return results
     
+    def __init__(self):
+        self.llm_agent = SOCLLMAgent()
+        
+        self.mcp_servers: Dict[str, MCPClient] = {}
+        self._llm_cache = LLMCache(max_size=50)
+        
+        # Circuit Breaker для каждого MCP сервера
+        cfg = get_config().mcp
+        self._circuit_breakers: Dict[str, CircuitBreaker] = {
+            "wazuh-mcp": CircuitBreaker(
+                "mcp-wazuh",
+                failure_threshold=cfg.circuit_breaker_threshold,
+                reset_timeout=cfg.circuit_breaker_reset_seconds,
+            ),
+            "own-mcp": CircuitBreaker(
+                "mcp-own",
+                failure_threshold=cfg.circuit_breaker_threshold,
+                reset_timeout=cfg.circuit_breaker_reset_seconds,
+            ),
+        }
+        
+        self.dialog_context = DialogContext(
+            session_id=f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        
+        self._tool_results_cache: Dict[str, Tuple[Any, float]] = {}
+        self._cache_ttl = 30.0
+        self.default_tools = []
+        
+        logger.info("🚀 Инициализация SOC AI Agent v3")
+    
+    # ============================================================
+    # Вызов MCP инструмента с CircuitBreaker
+    # ============================================================
+
     async def _call_mcp_tool(self, tool_name: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Вызов инструмента через MCP сервер с кастомными исключениями"""
+        """Вызов инструмента через MCP сервер с CircuitBreaker"""
         
         # Пробуем wazuh-mcp
         if "wazuh-mcp" in self.mcp_servers:
+            cb = self._circuit_breakers["wazuh-mcp"]
+            mcp = self.mcp_servers["wazuh-mcp"]
             try:
-                return await self.mcp_servers["wazuh-mcp"].call_tool(tool_name, parameters)
+                async def _call():
+                    return await mcp.call_tool(tool_name, parameters)
+                return await cb.call(_call)
+            except CircuitBreakerOpenError:
+                logger.warning(f"CircuitBreaker OPEN для wazuh-mcp, пробуем own-mcp")
             except (MCPToolNotFoundError, MCPConnectionError, MCPTimeoutError) as e:
-                logger.warning(f"Ошибка wazuh-mcp при вызове {tool_name}: {e} (code={e.code})")
-                # Пробуем own-mcp как fallback
+                logger.warning(f"Ошибка wazuh-mcp при вызове {tool_name}: {e}")
                 pass
         
         # Пробуем own-mcp
         if "own-mcp" in self.mcp_servers:
+            cb = self._circuit_breakers["own-mcp"]
+            mcp = self.mcp_servers["own-mcp"]
             try:
-                return await self.mcp_servers["own-mcp"].call_tool(tool_name, parameters)
+                async def _call2():
+                    return await mcp.call_tool(tool_name, parameters)
+                return await cb.call(_call2)
+            except CircuitBreakerOpenError:
+                logger.warning(f"CircuitBreaker OPEN для own-mcp")
             except (MCPToolNotFoundError, MCPConnectionError, MCPTimeoutError) as e:
-                logger.warning(f"Ошибка own-mcp при вызове {tool_name}: {e} (code={e.code})")
+                logger.warning(f"Ошибка own-mcp при вызове {tool_name}: {e}")
         
         return {"error": f"Инструмент {tool_name} недоступен", "code": "mcp_unavailable"}
-    
+
     # ============================================================
     # Генерация ответа (1 вызов LLM)
     # ============================================================
