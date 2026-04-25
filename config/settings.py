@@ -41,8 +41,8 @@ _DEFAULT_SEC_TOKEN_ROTATION = 30
 
 class MCPConnectionSettings(BaseSettings):
     """Настройки подключения к MCP серверу"""
-    url: str = "http://127.0.0.1:3000/mcp"
-    own_url: str = "http://127.0.0.1:8000/mcp"
+    url: str = "http://127.0.0.1:3000"
+    own_url: str = "http://127.0.0.1:8000"
     connect_timeout: float = _DEFAULT_MCP_CONNECT_TIMEOUT
     read_timeout: float = _DEFAULT_MCP_READ_TIMEOUT
     max_retries: int = _DEFAULT_MCP_MAX_RETRIES

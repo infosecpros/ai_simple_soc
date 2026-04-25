@@ -44,8 +44,8 @@ class MCPClient:
                 f"{self.server_url}/health",
                 timeout=ClientTimeout(total=5)
             ) as resp:
-                if resp.status == 200:
-                    logger.info(f"Подключен к MCP серверу: {self.server_url}")
+                if resp.status in (200, 503):
+                    logger.info(f"Подключен к MCP серверу: {self.server_url} (status={resp.status})")
                     self._initialized = True
                     await self._load_tools()
                     return True
@@ -69,19 +69,25 @@ class MCPClient:
         return False
 
     async def _load_tools(self):
-        """Загрузка списка инструментов с MCP-сервера"""
+        """Загрузка списка инструментов через MCP протокол (JSON-RPC tools/list)"""
         try:
             session = await self._ensure_session()
-            async with session.get(
-                f"{self.server_url}/tools",
-                timeout=ClientTimeout(total=10)
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "tools/list",
+                "id": 1,
+            }
+            async with session.post(
+                f"{self.server_url}/mcp",
+                json=payload,
+                timeout=ClientTimeout(total=10),
             ) as resp:
                 if resp.status == 200:
                     data = await resp.json()
-                    self._tools = data.get("tools", [])
+                    self._tools = data.get("result", {}).get("tools", [])
                     logger.info(f"Загружено {len(self._tools)} инструментов")
                 else:
-                    logger.warning(f"MCP tools вернул HTTP {resp.status}")
+                    logger.warning(f"MCP tools/list вернул HTTP {resp.status}")
         except asyncio.TimeoutError:
             logger.error(f"Таймаут загрузки инструментов с {self.server_url}")
         except aiohttp.ClientError as e:
@@ -100,7 +106,7 @@ class MCPClient:
         tool_name: str,
         parameters: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Вызов инструмента MCP с детальной обработкой ошибок"""
+        """Вызов инструмента MCP через JSON-RPC tools/call"""
         if not self._initialized:
             raise MCPConnectionError(
                 self.server_url,
@@ -111,16 +117,19 @@ class MCPClient:
         tool_names = self.get_tool_names()
         if tool_names and tool_name not in tool_names:
             raise MCPToolNotFoundError(tool_name, self.name)
-
         try:
             session = await self._ensure_session()
             payload = {
-                "tool": tool_name,
-                "parameters": parameters or {},
+                "jsonrpc": "2.0",
+                "method": "tools/call",
+                "id": 2,
+                "params": {
+                    "name": tool_name,
+                    "arguments": parameters or {},
+                },
             }
-
             async with session.post(
-                f"{self.server_url}/call",
+                f"{self.server_url}/mcp",
                 json=payload,
                 timeout=ClientTimeout(total=30),
             ) as resp:
@@ -142,3 +151,4 @@ class MCPClient:
                 pass
             self._session = None
         self._initialized = False
+

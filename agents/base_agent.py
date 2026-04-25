@@ -180,17 +180,20 @@ class BaseAgent(ABC):
         # 3. Ответ
         response = await self.respond(query, analysis, results)
         
+        # Берём имена инструментов из анализа (если есть план в suggested_tools)
+        tools_used = analysis.suggested_tools or []
+        
         elapsed = (datetime.now() - start).total_seconds()
         self._logger.info("run_complete",
             elapsed_seconds=elapsed,
-            tools_used=len(results),
+            tools_used=len(tools_used),
             confidence=analysis.confidence
         )
         
         return AgentResult(
             response=response,
             data={"analysis": analysis.model_dump(), "results": results},
-            tools_used=[r.get("tool", "") for r in results],
+            tools_used=tools_used,
             confidence=analysis.confidence,
             requires_confirmation=analysis.requires_confirmation,
             risk_level=analysis.risk_level
