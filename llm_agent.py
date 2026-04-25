@@ -463,13 +463,16 @@ class SOCLLMAgent:
         )
         
         # Создаем вызовы инструментов
-        tool_calls = []
+        tool_calls: list[Dict[str, Any]] = []
         for tool_name in plan_config["tools"]:
             # Проверяем, есть ли инструмент в кэше
             if not any(t["name"] == tool_name for t in self._tools_cache):
                 continue
             
-            params = {**plan_config["parameters"]}
+            plan_params = plan_config.get("parameters", {})
+            params: dict[str, Any] = {}
+            if isinstance(plan_params, dict):
+                params.update(plan_params)
             
             # Добавляем специфичные параметры
             if analysis.intent == IntentType.IOC_CHECK and analysis.parameters:
@@ -484,12 +487,12 @@ class SOCLLMAgent:
             tool_calls.append({
                 "tool": tool_name,
                 "parameters": params,
-                "order": len(tool_calls) + 1
+                "order": str(len(tool_calls) + 1),
             })
         
         return ToolExecutionPlan(
             tool_calls=tool_calls,
-            description=plan_config["description"],
+            description=str(plan_config["description"]),
             estimated_impact=analysis.reasoning
         )
     

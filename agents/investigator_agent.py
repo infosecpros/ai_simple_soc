@@ -68,7 +68,7 @@ class InvestigatorAgent(BaseAgent):
         return list(self.INTENT_TOOLS.keys())
 
     def get_required_tools(self) -> List[str]:
-        tools = set()
+        tools: set[str] = set()
         for cfg in self.INTENT_TOOLS.values():
             tools.update(cfg.get("tools", []))
         return list(tools)
@@ -112,8 +112,9 @@ class InvestigatorAgent(BaseAgent):
             {"tools": ["search_security_events"], "params": {}}
         )
         
+        context = self._context
         results = []
-        available_tools = self._context.available_tools if self._context else []
+        available_tools = context.available_tools if context else []
         available_names = [t.get("name", "") for t in available_tools]
         
         for tool_name in plan_config["tools"]:
@@ -121,14 +122,17 @@ class InvestigatorAgent(BaseAgent):
                 logger.debug("tool_not_available", tool=tool_name)
                 continue
             
-            params = {**plan_config["params"]}
+            plan_params = plan_config.get("params", {})
+            params: dict[str, Any] = {}
+            if isinstance(plan_params, dict):
+                params.update(plan_params)
             
             for server_name in ["wazuh-mcp", "own-mcp"]:
-                if server_name not in (self._context.mcp_servers or {}):
+                if context is None or server_name not in context.mcp_servers:
                     continue
                     
-                cb = (self._context.circuit_breakers or {}).get(server_name)
-                mcp = (self._context.mcp_servers or {}).get(server_name)
+                cb = (context.circuit_breakers or {}).get(server_name)
+                mcp = (context.mcp_servers or {}).get(server_name)
                 
                 if cb is None or mcp is None:
                     continue

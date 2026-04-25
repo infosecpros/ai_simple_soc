@@ -43,7 +43,7 @@ echo -e "\n${GREEN}🔌 Проверка подключения к Wazuh-MCP-Ser
 if python -c "
 import asyncio, sys
 sys.path.insert(0, '.')
-from soc_agent_v3 import MCPClient
+from services.mcp_client import MCPClient
 
 async def check():
     try:

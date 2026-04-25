@@ -55,14 +55,14 @@ class ReporterAgent(BaseAgent):
         return list(self.INTENT_TOOLS.keys())
 
     def get_required_tools(self) -> List[str]:
-        tools = set()
+        tools: set[str] = set()
         for cfg in self.INTENT_TOOLS.values():
             tools.update(cfg.get("tools", []))
         return list(tools)
 
     def _fallback_intent(self, query: str) -> IntentType:
         q = query.lower()
-        if any(w in q for w in ["отчет", "report", "дашборд", "dashboard",
+        if any(w in q for w in ["отчет", "отчёт", "report", "дашборд", "dashboard", "сводк", "summary", "статистик", "stat",
                                  "сводк", "summary", "статистик", "stat"]):
             return IntentType.REPORT_GENERATION
         if any(w in q for w in ["комплаенс", "compliance", "pci", "gdpr",
@@ -76,12 +76,17 @@ class ReporterAgent(BaseAgent):
         
         fast_intent = self._fallback_intent(query)
         if fast_intent != IntentType.GENERAL_QUERY:
+            intent_cfg = self.INTENT_TOOLS.get(fast_intent.value, {})
+            raw_params = intent_cfg.get("params", {})
+            params: dict[str, Any] = {}
+            if isinstance(raw_params, dict):
+                params.update(raw_params)
             return AnalysisResult(
                 intent=fast_intent,
                 confidence=0.8,
                 reasoning=f"ReporterAgent keyword-based: {fast_intent.value}",
-                suggested_tools=self.INTENT_TOOLS.get(fast_intent.value, {}).get("tools", []),
-                parameters=self.INTENT_TOOLS.get(fast_intent.value, {}).get("params", {})
+                suggested_tools=list(intent_cfg.get("tools", [])),
+                parameters=params
             )
         
         if context.llm_agent:
@@ -91,7 +96,7 @@ class ReporterAgent(BaseAgent):
             intent=IntentType.GENERAL_QUERY,
             confidence=0.5,
             reasoning="ReporterAgent fallback",
-            suggested_tools=self.INTENT_TOOLS["general_query"]["tools"],
+            suggested_tools=list(self.INTENT_TOOLS["general_query"].get("tools", [])),
             parameters={}
         )
 
@@ -103,15 +108,19 @@ class ReporterAgent(BaseAgent):
             self.INTENT_TOOLS["general_query"]
         )
         
+        context = self._context
         results = []
         for tool_name in plan_config["tools"]:
-            params = {**plan_config["params"]}
+            plan_params = plan_config.get("params", {})
+            params: dict[str, Any] = {}
+            if isinstance(plan_params, dict):
+                params.update(plan_params)
             
             for server_name in ["wazuh-mcp", "own-mcp"]:
-                if server_name not in (self._context.mcp_servers or {}):
+                if context is None or server_name not in context.mcp_servers:
                     continue
-                cb = (self._context.circuit_breakers or {}).get(server_name)
-                mcp = (self._context.mcp_servers or {}).get(server_name)
+                cb = (context.circuit_breakers or {}).get(server_name)
+                mcp = (context.mcp_servers or {}).get(server_name)
                 if cb is None or mcp is None:
                     continue
                 try:

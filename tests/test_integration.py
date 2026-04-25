@@ -187,25 +187,35 @@ class TestIntegrationFullFlow:
 
     @pytest.mark.asyncio
     async def test_full_query_flow_no_mcp(self):
-        """Полный поток запроса без MCP сервера (fallback)"""
-        from soc_agent_v3 import SOCAgentV3
+        """Полный поток запроса через Orchestrator без MCP сервера"""
+        from agents.orchestrator import Orchestrator
+        from agents.base_agent import AgentContext
 
-        agent = SOCAgentV3()
-        # Не вызываем initialize() — MCP недоступен, но агент работает
-        agent.default_tools = [
+        orchestrator = Orchestrator()
+        tools = [
             {"name": "get_wazuh_alert_summary", "description": "Сводка алертов"},
             {"name": "get_wazuh_statistics", "description": "Статистика"},
             {"name": "get_wazuh_agents", "description": "Агенты"},
             {"name": "get_wazuh_critical_vulnerabilities", "description": "Критические уязвимости"},
         ]
 
-        result = await agent.process_query("покажи алерты")
-        assert isinstance(result, dict)
-        assert "response" in result
-        assert "intent" in result
-        assert result["intent"] in [i.value for i in IntentType], \
-            f"intent {result['intent']} not in valid intents"
-        assert result.get("session_id", "").startswith("session_")
+        context = AgentContext(
+            session_id="test_session",
+            query="покажи алерты",
+            available_tools=tools,
+            mcp_servers={},
+            circuit_breakers={},
+            llm_agent=None,
+            cache={},
+        )
+
+        result = await orchestrator.route_query("покажи алерты", context)
+        assert isinstance(result, object)
+        assert hasattr(result, "response")
+        assert hasattr(result, "data")
+        intent = result.data.get("analysis", {}).get("intent", "unknown")
+        assert intent in [i.value for i in IntentType], \
+            f"intent {intent} not in valid intents"
 
     @pytest.mark.asyncio
     async def test_prompt_injection_blocks_dangerous(self):

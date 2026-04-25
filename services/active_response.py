@@ -22,7 +22,7 @@ class RiskLevel(str, Enum):
     CRITICAL = "critical"
 
 
-ACTIVE_RESPONSE_TOOLS = {
+ACTIVE_RESPONSE_TOOLS: dict[str, dict[str, Any]] = {
     "wazuh_block_ip": {"risk": RiskLevel.LOW, "reversible": True},
     "wazuh_isolate_host": {"risk": RiskLevel.MEDIUM, "reversible": True},
     "wazuh_kill_process": {"risk": RiskLevel.MEDIUM, "reversible": False},
@@ -48,7 +48,8 @@ def requires_2fa(tool_name: str) -> bool:
     cfg = get_config().security
     if not cfg.active_response_require_2fa:
         return False
-    return info["risk"] in (RiskLevel.HIGH, RiskLevel.CRITICAL)
+    risk: RiskLevel = info.get("risk", RiskLevel.LOW)
+    return risk in (RiskLevel.HIGH, RiskLevel.CRITICAL)
 
 
 def create_confirmation(tool_name: str, parameters: dict, ip: str = "") -> str:
@@ -116,15 +117,16 @@ async def execute_with_safety(
     """
     audit = get_audit()
     info = ACTIVE_RESPONSE_TOOLS.get(tool_name, {"risk": RiskLevel.LOW})
+    risk: RiskLevel = info.get("risk", RiskLevel.LOW)
 
     # Проверка подтверждения
     if requires_confirmation(tool_name):
         token = create_confirmation(tool_name, parameters, ip)
         return {
             "status": "requires_confirmation",
-            "message": f"Требуется подтверждение для {tool_name} (уровень риска: {info['risk']})",
+            "message": f"Требуется подтверждение для {tool_name} (уровень риска: {risk.value})",
             "confirmation_token": token,
-            "risk_level": info["risk"].value,
+            "risk_level": risk.value,
             "rollback": get_rollback_action(tool_name, parameters),
         }
 
@@ -143,7 +145,7 @@ async def execute_with_safety(
         )
 
         result["rollback"] = get_rollback_action(tool_name, parameters)
-        result["risk_level"] = info["risk"].value
+        result["risk_level"] = risk.value
 
         if not success:
             # Автоматический rollback при ошибке (если обратимо)
@@ -168,4 +170,4 @@ async def execute_with_safety(
             error=str(e),
             ip_address=ip,
         )
-        return {"error": str(e), "risk_level": info["risk"].value}
+        return {"error": str(e), "risk_level": risk.value}

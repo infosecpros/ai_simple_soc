@@ -12,6 +12,7 @@ from datetime import datetime
 import structlog
 
 from agents.base_agent import BaseAgent, AgentContext, AgentResult
+from llm_agent import IntentType, AnalysisResult
 
 logger = structlog.get_logger()
 
@@ -157,11 +158,12 @@ class ResponderAgent(BaseAgent):
 
     async def _execute_approved(self, approval: ApprovalRequest) -> Dict[str, Any]:
         """Выполнение подтверждённого действия"""
+        context = self._context
         for server_name in ["wazuh-mcp", "own-mcp"]:
-            if server_name not in (self._context.mcp_servers or {}):
+            if context is None or server_name not in context.mcp_servers:
                 continue
-            mcp = (self._context.mcp_servers or {}).get(server_name)
-            cb = (self._context.circuit_breakers or {}).get(server_name)
+            mcp = (context.mcp_servers or {}).get(server_name)
+            cb = (context.circuit_breakers or {}).get(server_name)
             if mcp is None or cb is None:
                 continue
             try:
@@ -177,15 +179,16 @@ class ResponderAgent(BaseAgent):
 
     async def _execute_investigation(self, analysis: AnalysisResult) -> List[Dict[str, Any]]:
         """Read-only investigation (incident_response без active_response)"""
+        context = self._context
         results = []
         tools = self.TOOLS.get("incident_response", [])[:3]  # первые 3 инструмента
         
         for tool_name in tools:
             for server_name in ["wazuh-mcp", "own-mcp"]:
-                if server_name not in (self._context.mcp_servers or {}):
+                if context is None or server_name not in context.mcp_servers:
                     continue
-                mcp = (self._context.mcp_servers or {}).get(server_name)
-                cb = (self._context.circuit_breakers or {}).get(server_name)
+                mcp = (context.mcp_servers or {}).get(server_name)
+                cb = (context.circuit_breakers or {}).get(server_name)
                 if mcp is None or cb is None:
                     continue
                 try:

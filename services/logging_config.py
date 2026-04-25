@@ -26,7 +26,7 @@ def configure_logging(env: Optional[str] = None) -> None:
 
     if log_level == "DEV" or log_level == "dev":
         # Разработка: цветной вывод в консоль
-        processors = [
+        processors: list = [
             structlog.stdlib.filter_by_level,
             structlog.stdlib.add_logger_name,
             structlog.stdlib.add_log_level,

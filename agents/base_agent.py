@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional, Tuple, Literal
 from datetime import datetime
 from dataclasses import dataclass, field
 
+from llm_agent import AnalysisResult, IntentType
 import structlog
 
 logger = structlog.get_logger()

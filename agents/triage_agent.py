@@ -34,7 +34,7 @@ class TriageAgent(BaseAgent):
     INTENT_KEYWORDS = {
         "alert_triage": [
             "алерт", "alert", "событие", "инцидент", "sigid", "siganat",
-            "проверь алерт", "критический", "wazuh", "security",
+            "проверь алерт", "критический","критич","событие","событий","security", "wazuh", "security",
         ],
         "agent_status": [
             "агент", "agent", "статус", "активн", "запущен",
@@ -48,7 +48,7 @@ class TriageAgent(BaseAgent):
     
     # Маппинг severity ключевых слов
     SEVERITY_KEYWORDS = {
-        "critical": ["critical", "критический", "крит", "emergency", "15", "14"],
+        "critical": ["critical", "критический","критич","событие","событий","security", "крит", "emergency", "15", "14"],
         "high": ["high", "высокий", "высок", "12", "13", "11", "10"],
         "medium": ["medium", "средний", "средн", "7", "8", "9"],
         "low": ["low", "низкий", "низк", "info", "инфо"],
@@ -127,7 +127,7 @@ class TriageAgent(BaseAgent):
             self._intent_tool_map["general_query"]
         )
         
-        tool_calls = []
+        tool_calls: list[Dict[str, Any]] = []
         available_tools = self._context.available_tools if self._context else []
         available_names = [t.get("name", "") for t in available_tools]
         
@@ -135,7 +135,7 @@ class TriageAgent(BaseAgent):
             if available_names and tool_name not in available_names:
                 continue
             
-            params = {
+            params: dict[str, Any] = {
                 "limit": 50,
                 "severity": self._detect_severity(
                     self._context.query if self._context else ""
@@ -145,7 +145,7 @@ class TriageAgent(BaseAgent):
             tool_calls.append({
                 "tool": tool_name,
                 "parameters": params,
-                "order": len(tool_calls) + 1
+                "order": str(len(tool_calls) + 1),
             })
         
         # Если нет инструментов — минимальный набор
@@ -204,17 +204,18 @@ class TriageAgent(BaseAgent):
         plan = self._generate_plan(analysis)
         results = []
         
+        context = self._context
         for call in plan.tool_calls:
             tool_name = call["tool"]
             params = call["parameters"]
             
             # Пробуем каждый MCP сервер
             for server_name in ["wazuh-mcp", "own-mcp"]:
-                if server_name not in (self._context.mcp_servers if self._context else {}):
+                if context is None or server_name not in context.mcp_servers:
                     continue
                     
-                cb = (self._context.circuit_breakers or {}).get(server_name)
-                mcp = (self._context.mcp_servers or {}).get(server_name)
+                cb = (context.circuit_breakers or {}).get(server_name)
+                mcp = (context.mcp_servers or {}).get(server_name)
                 
                 if cb is None or mcp is None:
                     continue
