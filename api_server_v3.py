@@ -19,7 +19,7 @@ import logging
 import os
 import signal
 import sys
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, List
 from datetime import datetime
 
 from aiohttp import web
@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.dirname(__file__))
 
 from agents.orchestrator import Orchestrator
-from agents.base_agent import AgentContext
+from agents.base_agent import AgentContext, AgentResult
 from services.mcp_client import MCPClient
 from services.circuit_breaker import CircuitBreaker
 from services.exceptions import SOCAgentError
@@ -43,7 +43,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Маппинг кодов ошибок на HTTP статусы
-ERROR_HTTP_STATUS = {
+ERROR_HTTP_STATUS: Dict[str, int] = {
     "mcp_connection_error": 502,
     "mcp_tool_not_found": 400,
     "mcp_tool_call_error": 502,
@@ -63,8 +63,9 @@ def _error_response(error: Exception) -> web.Response:
     """Преобразует исключение в HTTP ответ с правильным статусом"""
     if isinstance(error, SOCAgentError):
         status = ERROR_HTTP_STATUS.get(error.code, 500)
+        details: Dict[str, Any] = error.details  # type: ignore[assignment]
         return web.json_response(
-            {"error": str(error), "code": error.code, "details": error.details},
+            {"error": str(error), "code": error.code, "details": details},
             status=status,
         )
     if isinstance(error, json.JSONDecodeError):
@@ -72,14 +73,15 @@ def _error_response(error: Exception) -> web.Response:
     if isinstance(error, asyncio.TimeoutError):
         return web.json_response({"error": "Request timeout"}, status=504)
     # Любая другая ошибка
-    logger.exception(f"❌ Internal error: {error}")
+    logger.exception("Internal error: %s", error)
     return web.json_response({"error": "Internal server error"}, status=500)
 
 
-async def _run_with_timeout(coro, timeout: float = AGENT_TIMEOUT_SECONDS):
+async def _run_with_timeout(coro: Any, timeout: float = AGENT_TIMEOUT_SECONDS) -> Any:
     """Запускает корутину с таймаутом"""
     try:
-        return await asyncio.wait_for(coro, timeout=timeout)
+        result: Any = await asyncio.wait_for(coro, timeout=timeout)
+        return result
     except asyncio.TimeoutError:
         raise asyncio.TimeoutError(f"Request timed out after {timeout}s")
 
@@ -95,10 +97,10 @@ class SOCAgentAPIV3:
         self._mcp_servers: Dict[str, MCPClient] = {}
         self._circuit_breakers: Dict[str, CircuitBreaker] = {}
         self._llm_agent: Optional[Any] = None
-        self._available_tools: list = []
+        self._available_tools: List[Dict[str, Any]] = []
         self._setup_routes()
 
-    def _setup_routes(self):
+    def _setup_routes(self) -> None:
         self.app.router.add_get('/health', self.health_check)
         self.app.router.add_get('/tools', self.get_tools)
         self.app.router.add_get('/agents', self.get_agents)
@@ -110,11 +112,11 @@ class SOCAgentAPIV3:
 
     async def health_check(self, request: web.Request) -> web.Response:
         """Healthcheck"""
-        mcp_status = {}
+        mcp_status: Dict[str, str] = {}
         for name, mcp in self._mcp_servers.items():
-            mcp_status[name] = "connected" if mcp._initialized else "disconnected"
+            mcp_status[name] = "connected" if mcp.is_connected() else "disconnected"
 
-        status = {
+        status: Dict[str, Any] = {
             "status": "ok",
             "service": "soc-ai-agent-v10",
             "version": "0.10.0",
@@ -141,7 +143,7 @@ class SOCAgentAPIV3:
         """Список всех агентов"""
         if not self.orchestrator:
             return web.json_response({"error": "Agent not initialized"}, status=503)
-        
+
         agents = self.orchestrator.get_available_agents()
         return web.json_response({"agents": agents})
 
@@ -149,7 +151,7 @@ class SOCAgentAPIV3:
         """Очередь подтверждений ResponderAgent"""
         if not self.orchestrator:
             return web.json_response({"error": "Agent not initialized"}, status=503)
-        
+
         approvals = self.orchestrator.get_pending_approvals()
         return web.json_response({
             "approvals": [a.model_dump() for a in approvals],
@@ -160,11 +162,11 @@ class SOCAgentAPIV3:
         """Подтверждение действия"""
         if not self.orchestrator:
             return web.json_response({"error": "Agent not initialized"}, status=503)
-        
+
         approval_id = request.match_info.get("approval_id")
         if not approval_id:
             return web.json_response({"error": "approval_id is required"}, status=400)
-        
+
         result = await self.orchestrator.approve_action(approval_id)
         return web.json_response(result)
 
@@ -179,7 +181,7 @@ class SOCAgentAPIV3:
             if not query:
                 return web.json_response({"error": "Query is required"}, status=400)
 
-            logger.info(f"📨 Получен запрос: {query[:80]}")
+            logger.info("Received query: %s", query[:80])
 
             if not self.orchestrator:
                 return web.json_response({"error": "Agent not initialized"}, status=503)
@@ -194,15 +196,15 @@ class SOCAgentAPIV3:
                 cache={},
             )
 
-            result = await _run_with_timeout(
+            result: AgentResult = await _run_with_timeout(
                 self.orchestrator.route_query(query, context),
                 timeout=AGENT_TIMEOUT_SECONDS,
             )
-            
+
             return web.json_response({
                 "query": query,
                 "response": result.response,
-                "agent": result.data.get("analysis", {}).get("intent", "unknown"),
+                "agent": result.data.get("analysis", {}).get("intent", "unknown") if result.data else "unknown",
                 "confidence": result.confidence,
                 "tools_used": result.tools_used,
                 "requires_confirmation": result.requires_confirmation,
@@ -211,7 +213,7 @@ class SOCAgentAPIV3:
         except (json.JSONDecodeError, SOCAgentError, asyncio.TimeoutError) as e:
             return _error_response(e)
         except Exception as e:
-            logger.exception(f"❌ Ошибка обработки запроса: {e}")
+            logger.exception("Error processing query: %s", e)
             return _error_response(e)
 
     async def chat_endpoint(self, request: web.Request) -> web.StreamResponse:
@@ -248,20 +250,21 @@ class SOCAgentAPIV3:
                 llm_agent=self._llm_agent,
                 cache={},
             )
-            result = await _run_with_timeout(
+
+            result: AgentResult = await _run_with_timeout(
                 self.orchestrator.route_query(query, context),
                 timeout=AGENT_TIMEOUT_SECONDS,
             )
-            
+
             return web.json_response({
                 "response": result.response,
-                "agent": result.data.get("analysis", {}).get("intent", "unknown"),
+                "agent": result.data.get("analysis", {}).get("intent", "unknown") if result.data else "unknown",
             })
 
         except (json.JSONDecodeError, SOCAgentError, asyncio.TimeoutError) as e:
             return _error_response(e)
         except Exception as e:
-            logger.exception(f"❌ Ошибка chat: {e}")
+            logger.exception("Chat error: %s", e)
             return _error_response(e)
 
     async def _sse_chat(self, query: str, request: web.Request) -> web.StreamResponse:
@@ -300,14 +303,14 @@ class SOCAgentAPIV3:
                 cache={},
             )
             result = await self.orchestrator.route_query(query, context)
-            
+
             await response.write(f"data: {json.dumps(result.model_dump())}\n\n".encode())
             await response.write(
                 f"data: {json.dumps({'status': 'complete'})}\n\n".encode()
             )
 
         except Exception as e:
-            logger.error(f"❌ SSE ошибка: {e}")
+            logger.error("SSE error: %s", e)
             await response.write(
                 f"data: {json.dumps({'error': str(e)})}\n\n".encode()
             )
@@ -357,7 +360,7 @@ class SOCAgentAPIV3:
         """
         return web.Response(text=html, content_type='text/html')
 
-    async def _connect_mcp_servers(self):
+    async def _connect_mcp_servers(self) -> None:
         """Подключение к MCP-серверам"""
         mcp_cfg = get_config().mcp
 
@@ -365,20 +368,20 @@ class SOCAgentAPIV3:
         wazuh_client = MCPClient(mcp_cfg.url, name="wazuh-mcp")
         if await wazuh_client.connect():
             self._mcp_servers["wazuh-mcp"] = wazuh_client
-            logger.info(f"✅ Подключен Wazuh-MCP: {len(wazuh_client.get_tools_list())} инструментов")
+            logger.info("Connected Wazuh-MCP: %s tools", len(wazuh_client.get_tools_list()))
         else:
-            logger.warning("⚠️ Wazuh-MCP недоступен")
+            logger.warning("Wazuh-MCP unavailable")
 
         # Own-MCP
         own_client = MCPClient(mcp_cfg.own_url, name="own-mcp")
         if await own_client.connect():
             self._mcp_servers["own-mcp"] = own_client
-            logger.info(f"✅ Подключен Own-MCP: {len(own_client.get_tools_list())} инструментов")
+            logger.info("Connected Own-MCP: %s tools", len(own_client.get_tools_list()))
         else:
-            logger.warning("⚠️ Own-MCP недоступен")
+            logger.warning("Own-MCP unavailable")
 
         # Собираем все инструменты
-        all_tools = []
+        all_tools: List[Dict[str, Any]] = []
         for mcp in self._mcp_servers.values():
             all_tools.extend(mcp.get_tools_list())
         self._available_tools = all_tools
@@ -397,23 +400,23 @@ class SOCAgentAPIV3:
             ),
         }
 
-    def _init_llm(self):
+    def _init_llm(self) -> None:
         """Инициализация LLM-агента (если ключ есть)"""
         llm_cfg = get_config().llm
         if llm_cfg.api_key and llm_cfg.api_key.get_secret_value():
             try:
                 from llm_agent import SOCLLMAgent
                 self._llm_agent = SOCLLMAgent()
-                logger.info("✅ LLM-агент подключён")
+                logger.info("LLM-agent connected")
             except Exception as e:
-                logger.warning(f"⚠️ LLM-агент недоступен: {e}")
+                logger.warning("LLM-agent unavailable: %s", e)
                 self._llm_agent = None
         else:
-            logger.info("ℹ️ LLM не настроен (LLM_API_KEY не задан)")
+            logger.info("LLM not configured (LLM_API_KEY not set)")
 
-    async def initialize(self):
+    async def initialize(self) -> None:
         """Инициализация MCP, LLM и Orchestrator"""
-        logger.info("🚀 Инициализация SOC AI Agent API v10")
+        logger.info("Initializing SOC AI Agent API v10")
 
         # Подключаемся к MCP-серверам
         await self._connect_mcp_servers()
@@ -424,12 +427,13 @@ class SOCAgentAPIV3:
         # Создаём Orchestrator
         self.orchestrator = Orchestrator()
 
-        logger.info("✅ SOC AI Agent API v10 готов к работе")
-        logger.info(f"📋 Агенты: {[a['name'] for a in self.orchestrator.get_available_agents()]}")
-        logger.info(f"🔌 MCP: {list(self._mcp_servers.keys()) or 'нет'}")
-        logger.info(f"🧠 LLM: {'подключён' if self._llm_agent else 'не подключён'}")
-        logger.info(f"🛠  Инструменты: {len(self._available_tools)}")
-    async def start(self):
+        logger.info("SOC AI Agent API v10 ready")
+        logger.info("Agents: %s", [a['name'] for a in self.orchestrator.get_available_agents()])
+        logger.info("MCP: %s", list(self._mcp_servers.keys()) or "none")
+        logger.info("LLM: %s", "connected" if self._llm_agent else "not connected")
+        logger.info("Tools: %s", len(self._available_tools))
+
+    async def start(self) -> None:
         """Запуск сервера"""
         await self.initialize()
 
@@ -437,16 +441,16 @@ class SOCAgentAPIV3:
         await runner.setup()
         site = web.TCPSite(runner, self.host, self.port)
 
-        logger.info(f"🌐 API v10 сервер запущен на {self.host}:{self.port}")
-        logger.info("📋 Доступные эндпоинты:")
-        logger.info("  • GET  /health            — Healthcheck")
-        logger.info("  • GET  /tools             — Список инструментов")
-        logger.info("  • GET  /agents            — Список агентов")
-        logger.info("  • GET  /approvals         — Очередь подтверждений")
-        logger.info("  • POST /approve/{id}       — Подтверждение действия")
-        logger.info("  • POST /query             — Обработка запроса")
-        logger.info("  • POST /chat              — Chat с SSE")
-        logger.info("  • GET  /                  — Web UI")
+        logger.info("API v10 server running on %s:%s", self.host, self.port)
+        logger.info("Endpoints:")
+        logger.info("  GET  /health            - Healthcheck")
+        logger.info("  GET  /tools             - Tool list")
+        logger.info("  GET  /agents            - Agent list")
+        logger.info("  GET  /approvals         - Approval queue")
+        logger.info("  POST /approve/{id}      - Approve action")
+        logger.info("  POST /query             - Process query")
+        logger.info("  POST /chat              - Chat (SSE)")
+        logger.info("  GET  /                  - Web UI")
 
         await site.start()
 
@@ -455,20 +459,20 @@ class SOCAgentAPIV3:
         except asyncio.CancelledError:
             pass
         finally:
-            await self._cleanup()
+            await self.cleanup()
             await runner.cleanup()
-            logger.info("👋 Сервер остановлен")
+            logger.info("Server stopped")
 
-    async def _cleanup(self):
+    async def cleanup(self) -> None:
         """Закрытие всех соединений"""
-        for name, client in self._mcp_servers.items():
+        for _name, client in self._mcp_servers.items():
             await client.close()
         self._mcp_servers.clear()
         self._circuit_breakers.clear()
-        logger.info("🔌 Соединения закрыты")
+        logger.info("Connections closed")
 
 
-async def main():
+async def main() -> None:
     api = SOCAgentAPIV3(
         host=os.getenv("API_HOST", "0.0.0.0"),
         port=int(os.getenv("API_PORT", "8080"))
@@ -478,24 +482,23 @@ async def main():
     loop = asyncio.get_event_loop()
     shutdown_event = asyncio.Event()
 
-    def _signal_handler():
-        logger.info("📴 Получен сигнал завершения, начинаем shutdown...")
+    def _signal_handler() -> None:
+        logger.info("Shutdown signal received, starting shutdown...")
         shutdown_event.set()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
             loop.add_signal_handler(sig, _signal_handler)
         except NotImplementedError:
-            # Windows не поддерживает add_signal_handler
             pass
 
     try:
         await api.start()
         await shutdown_event.wait()
     except KeyboardInterrupt:
-        logger.info("👋 SOC AI Agent API v10 завершил работу")
+        logger.info("SOC AI Agent API v10 stopped")
     finally:
-        await api._cleanup()
+        await api.cleanup()
 
 
 if __name__ == "__main__":

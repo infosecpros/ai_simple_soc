@@ -71,7 +71,7 @@ class MCPClient:
         """Загрузка списка инструментов через MCP протокол (JSON-RPC tools/list)"""
         try:
             session = await self._ensure_session()
-            payload = {
+            payload: Dict[str, Any] = {
                 "jsonrpc": "2.0",
                 "method": "tools/list",
                 "id": 1,
@@ -82,7 +82,7 @@ class MCPClient:
                 timeout=ClientTimeout(total=10),
             ) as resp:
                 if resp.status == 200:
-                    data = await resp.json()
+                    data: Dict[str, Any] = await resp.json()
                     self._tools = data.get("result", {}).get("tools", [])
                     logger.info(f"Загружено {len(self._tools)} инструментов")
                 else:
@@ -99,6 +99,10 @@ class MCPClient:
 
     def get_tool_names(self) -> List[str]:
         return [t.get("name", "") for t in self._tools]
+
+    def is_connected(self) -> bool:
+        """Проверяет, подключен ли клиент к MCP-серверу"""
+        return self._initialized
 
     async def call_tool(
         self,
@@ -118,7 +122,7 @@ class MCPClient:
             raise MCPToolNotFoundError(tool_name, self.name)
         try:
             session = await self._ensure_session()
-            payload = {
+            payload: Dict[str, Any] = {
                 "jsonrpc": "2.0",
                 "method": "tools/call",
                 "id": 2,
