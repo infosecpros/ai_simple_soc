@@ -1,0 +1,8 @@
+# Tech Radar — SOC AI Agent v10
+
+| Категория | Adopt (внедрено) | Trial (пилотируется) | Assess (изучить) | Hold (пока не нужно) |
+|-----------|--------------------|-----------------------|-------------------|------------------------|
+| **Архитектура / Паттерны** | • Static typing (`mypy .`) • Централизованный exception handler (`_error_response`) • Graceful shutdown + сигналы • `asyncio.wait_for` — таймауты на все внешние вызовы • Иерархия исключений (`SOCAgentError`) • Circuit Breaker • Rate Limiter • Prompt Injection (middleware) | • Distributed tracing (OpenTelemetry) • Feature flags для деплоя агентов | • Chaos‑инжиниринг отказов MCP/LLM • Суммаризация диалогов агентов | • Ручное тестирование промптов (автоматическое уже есть) |
+| **Инструменты** | • `ruff` (линтер/форматер) • `pytest` + `pytest-asyncio` • `aioresponses` (mock HTTP) • `structlog` (структурное логирование) | • Coverage (`pytest-cov`) • `bandit` (безопасность) | • LangSmith / ML‑flow • Trivy для Docker • ML‑детектор инъекций (Lakera Guard) | • Самописный логгер (уже `structlog`) |
+| **Платформы** | • GitHub Actions (CI: ruff → mypy → pytest) • Docker (есть Dockerfile) • KMS/Vault для секретов | • Kubernetes + startup/liveness probes • `pre-commit` хуки | • API Gateway для MCP • Service Mesh (istio/linkerd) | • Локальный запуск без оркестрации (уже работает) |
+| **Языки / Фреймворки** | • `pydantic-settings` + `SecretStr` • `tenacity` (retries) • `pydantic` (`BaseModel`, `Field`) • `aiohttp` | • OpenTelemetry SDK • `pydantic-ai` (observability) | • `langchain` • `ray` / `temporal` | • Замена `aiohttp` на `httpx` (не нужна) |
