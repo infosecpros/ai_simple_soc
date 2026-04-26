@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.deepseek import DeepSeekProvider
 from dotenv import load_dotenv
@@ -583,7 +583,6 @@ class SOCLLMAgent:
 
 async def test_llm_agent():
     """Тестирование LLM агента"""
-    import asyncio
     
     print("=" * 60)
     print("🧪 Тестирование LLM агента")
@@ -615,7 +614,7 @@ async def test_llm_agent():
         # Анализируем запрос
         analysis = await agent.analyze_query(query)
         
-        print(f"🤖 Анализ:")
+        print("🤖 Анализ:")
         print(f"  Намерение: {analysis.intent.value}")
         print(f"  Уверенность: {analysis.confidence:.2f}")
         print(f"  Обоснование: {analysis.reasoning[:200]}...")
@@ -625,7 +624,7 @@ async def test_llm_agent():
         # Генерируем план
         plan = await agent.generate_tool_plan(analysis, query)
         
-        print(f"\n📋 План выполнения:")
+        print("\n📋 План выполнения:")
         print(f"  Описание: {plan.description}")
         for call in plan.tool_calls:
             print(f"  {call['order']}. {call['tool']} {call['parameters']}")

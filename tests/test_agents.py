@@ -4,10 +4,8 @@
 """
 
 import pytest
-import asyncio
-from typing import Dict, Any, List
 
-from agents.base_agent import BaseAgent, AgentContext, AgentResult
+from agents.base_agent import AgentContext
 from agents.triage_agent import TriageAgent
 from agents.investigator_agent import InvestigatorAgent
 from agents.responder_agent import ResponderAgent, ApprovalRequest
@@ -111,8 +109,7 @@ class TestTriageAgent:
 
     def test_generate_plan_agent_status(self):
         agent = TriageAgent()
-        from llm_agent import AnalysisResult
-        analysis = AnalysisResult(
+        _ = AnalysisResult(
             intent=IntentType.AGENT_STATUS,
             confidence=0.9,
             reasoning="test",
@@ -194,7 +191,6 @@ class TestResponderAgent:
     async def test_execute_low_confidence_monitor_only(self, empty_context):
         """Confidence < 0.70 — monitor only, никаких действий"""
         agent = ResponderAgent()
-        from llm_agent import AnalysisResult
         analysis = AnalysisResult(
             intent=IntentType.ACTIVE_RESPONSE,
             confidence=0.5,
@@ -211,7 +207,6 @@ class TestResponderAgent:
     async def test_execute_medium_confidence_approval_required(self, empty_context):
         """Confidence 0.70-0.89 — требуется подтверждение"""
         agent = ResponderAgent()
-        from llm_agent import AnalysisResult
         analysis = AnalysisResult(
             intent=IntentType.ACTIVE_RESPONSE,
             confidence=0.8,

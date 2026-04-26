@@ -5,19 +5,17 @@
 
 import pytest
 import asyncio
-from unittest.mock import Mock, AsyncMock, patch
 
 # Импортируем компоненты v10
 import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from config.settings import get_config, AppConfig
 from services.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from services.rate_limiter import RateLimiter
 from middleware.prompt_injection import check_prompt_injection
 from memory.local_memory import LocalMemory
-from models.request_models import QueryRequest, ChatRequest, ChatMessage
+from models.request_models import QueryRequest, ChatMessage
 
 
 class TestCircuitBreaker:

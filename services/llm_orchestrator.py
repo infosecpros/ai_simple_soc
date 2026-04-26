@@ -5,10 +5,8 @@ LLM Orchestrator — мультиагентная оркестрация.
 """
 
 import logging
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+from typing import Dict, Any, List
 
-from config.settings import get_config
 from memory.local_memory import get_memory
 
 logger = logging.getLogger(__name__)

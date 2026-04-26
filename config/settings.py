@@ -5,7 +5,7 @@ Pydantic Settings — централизованная конфигурация 
 
 import os
 from typing import Optional, List, Literal
-from pydantic import Field, SecretStr
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -168,11 +168,11 @@ class AppConfig(BaseSettings):
         src = os.path.join(os.path.dirname(__file__), ".env.default")
         if os.path.exists(src):
             shutil.copy2(src, path)
-            print(f"[config] ✅ Скопирован шаблон .env (из .env.default)")
+            print("[config] ✅ Скопирован шаблон .env (из .env.default)")
         else:
             with open(path, "w") as f:
                 f.write("# SOC AI Agent v10 — скопируйте .env.default и настройте\n")
-            print(f"[config] ✅ Создан пустой .env")
+            print("[config] ✅ Создан пустой .env")
 
 
 _config: Optional[AppConfig] = None

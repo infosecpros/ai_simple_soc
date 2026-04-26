@@ -13,7 +13,6 @@ from aiohttp import ClientTimeout
 from services.exceptions import (
     MCPConnectionError,
     MCPToolNotFoundError,
-    MCPToolCallError,
     MCPTimeoutError,
 )
 

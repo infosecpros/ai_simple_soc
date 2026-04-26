@@ -16,10 +16,7 @@ from services.exceptions import (
     SOCAgentError,
 )
 from services.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
-from services.rate_limiter import RateLimiter
 from middleware.prompt_injection import check_prompt_injection
-from memory.local_memory import LocalMemory
-from models.request_models import QueryRequest
 from llm_agent import IntentType, AnalysisResult, SOCLLMAgent
 
 
@@ -38,7 +35,6 @@ class TestConfigAgentSettings:
         monkeypatch.setenv("AGENT_DIALOG_MAX_TURNS", "20")
         monkeypatch.setenv("AGENT_TOOL_CACHE_TTL_SECONDS", "60.0")
         # Создаём свежий инстанс AgentSettings — pydantic читает env при __init__
-        from config.settings import AgentSettings
         cfg = AgentSettings()
         assert cfg.dialog_max_turns == 20, f"got {cfg.dialog_max_turns}"
         assert cfg.tool_cache_ttl_seconds == 60.0, f"got {cfg.tool_cache_ttl_seconds}"

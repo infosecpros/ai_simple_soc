@@ -4,13 +4,12 @@ Reporter Agent — генерация отчётов и документации
 Использует LLM для красивого форматирования, без LLM — шаблоны.
 """
 
-from typing import Dict, Any, List, Optional
-import json
+from typing import Dict, Any, List
 from datetime import datetime
 
 import structlog
 
-from agents.base_agent import BaseAgent, AgentContext, AgentResult
+from agents.base_agent import BaseAgent, AgentContext
 from llm_agent import AnalysisResult, IntentType
 
 logger = structlog.get_logger()

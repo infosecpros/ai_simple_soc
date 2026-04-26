@@ -4,14 +4,13 @@ Responder Agent — действия с подтверждением.
 Human-in-the-loop для всех опасных операций.
 """
 
-from typing import Dict, Any, List, Optional, Literal
+from typing import Dict, Any, List, Literal
 from pydantic import BaseModel, Field
-import json
 from datetime import datetime
 
 import structlog
 
-from agents.base_agent import BaseAgent, AgentContext, AgentResult
+from agents.base_agent import BaseAgent, AgentContext
 from llm_agent import IntentType, AnalysisResult
 
 logger = structlog.get_logger()

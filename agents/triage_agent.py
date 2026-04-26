@@ -4,13 +4,11 @@ Triage Agent — быстрая классификация и приоритиз
 Первый агент в цепочке, работает без LLM для скорости.
 """
 
-from typing import Dict, Any, List, Optional
-import json
-from datetime import datetime, timedelta
+from typing import Dict, Any, List
 
 import structlog
 
-from agents.base_agent import BaseAgent, AgentContext, AgentResult
+from agents.base_agent import BaseAgent, AgentContext
 from llm_agent import AnalysisResult, ToolExecutionPlan, IntentType
 from config.settings import get_config
 

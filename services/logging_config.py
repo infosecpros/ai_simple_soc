@@ -9,7 +9,6 @@ from typing import Optional
 
 import structlog
 from structlog.processors import JSONRenderer, TimeStamper
-from structlog.dev import ConsoleRenderer
 
 from config.settings import get_config
 

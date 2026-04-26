@@ -4,14 +4,12 @@ Investigator Agent — глубокий анализ и сбор evidence.
 Использует LLM для сложных запросов, работает async.
 """
 
-from typing import Dict, Any, List, Optional
-import json
+from typing import Dict, Any, List
 
 import structlog
 
-from agents.base_agent import BaseAgent, AgentContext, AgentResult
-from llm_agent import AnalysisResult, ToolExecutionPlan, IntentType
-from config.settings import get_config
+from agents.base_agent import BaseAgent, AgentContext
+from llm_agent import AnalysisResult, IntentType
 
 logger = structlog.get_logger()
 

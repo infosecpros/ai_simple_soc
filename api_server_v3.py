@@ -23,7 +23,6 @@ from typing import Optional, Any, Dict
 from datetime import datetime
 
 from aiohttp import web
-from aiohttp.web import StreamResponse
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -31,8 +30,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from agents.orchestrator import Orchestrator
 from agents.base_agent import AgentContext
 from services.mcp_client import MCPClient
-from services.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
-from services.exceptions import SOCAgentError, MCPToolNotFoundError, MCPConnectionError, MCPTimeoutError
+from services.circuit_breaker import CircuitBreaker
+from services.exceptions import SOCAgentError
 from config.settings import get_config
 
 load_dotenv()
@@ -425,7 +424,7 @@ class SOCAgentAPIV3:
         # Создаём Orchestrator
         self.orchestrator = Orchestrator()
 
-        logger.info(f"✅ SOC AI Agent API v10 готов к работе")
+        logger.info("✅ SOC AI Agent API v10 готов к работе")
         logger.info(f"📋 Агенты: {[a['name'] for a in self.orchestrator.get_available_agents()]}")
         logger.info(f"🔌 MCP: {list(self._mcp_servers.keys()) or 'нет'}")
         logger.info(f"🧠 LLM: {'подключён' if self._llm_agent else 'не подключён'}")
