@@ -7,7 +7,7 @@
 from abc import ABC, abstractmethod
 from pydantic import BaseModel, Field
 
-from typing import Dict, Any, List, Optional, Tuple, Literal
+from typing import Dict, Any, List, Optional, Literal
 from datetime import datetime
 from dataclasses import dataclass, field
 
@@ -20,15 +20,15 @@ logger = structlog.get_logger()
 @dataclass
 class AgentContext:
     """Контекст выполнения агента"""
-    session_id: str
-    query: str
-    dialog_history: List[Dict[str, Any]] = field(default_factory=list)
-    available_tools: List[Dict[str, Any]] = field(default_factory=list)
-    mcp_servers: Dict[str, Any] = field(default_factory=dict)
-    circuit_breakers: Dict[str, Any] = field(default_factory=dict)
+    session_id: str = ""
+    query: str = ""
+    dialog_history: List[Dict[str, Any]] = field(default_factory=lambda: [])
+    available_tools: List[Dict[str, Any]] = field(default_factory=lambda: [])
+    mcp_servers: 'Dict[str, Any]' = field(default_factory=lambda: {})
+    circuit_breakers: 'Dict[str, Any]' = field(default_factory=lambda: {})
     llm_agent: Optional[Any] = None
-    cache: Dict[str, Any] = field(default_factory=dict)
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    cache: 'Dict[str, Any]' = field(default_factory=lambda: {})
+    parameters: 'Dict[str, Any]' = field(default_factory=lambda: {})
 
 
 class AgentResult(BaseModel):

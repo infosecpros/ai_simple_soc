@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import signal
 import sys
 from typing import Optional, Any, Dict
 from datetime import datetime
@@ -31,7 +32,7 @@ from agents.orchestrator import Orchestrator
 from agents.base_agent import AgentContext
 from services.mcp_client import MCPClient
 from services.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
-from services.exceptions import MCPToolNotFoundError, MCPConnectionError, MCPTimeoutError
+from services.exceptions import SOCAgentError, MCPToolNotFoundError, MCPConnectionError, MCPTimeoutError
 from config.settings import get_config
 
 load_dotenv()
@@ -41,6 +42,47 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Маппинг кодов ошибок на HTTP статусы
+ERROR_HTTP_STATUS = {
+    "mcp_connection_error": 502,
+    "mcp_tool_not_found": 400,
+    "mcp_tool_call_error": 502,
+    "mcp_timeout": 504,
+    "llm_analysis_error": 503,
+    "query_validation_error": 400,
+    "rate_limit_exceeded": 429,
+    "circuit_breaker_open": 503,
+    "internal_error": 500,
+}
+
+# Таймаут на весь цикл обработки запроса (сек)
+AGENT_TIMEOUT_SECONDS = 60.0
+
+
+def _error_response(error: Exception) -> web.Response:
+    """Преобразует исключение в HTTP ответ с правильным статусом"""
+    if isinstance(error, SOCAgentError):
+        status = ERROR_HTTP_STATUS.get(error.code, 500)
+        return web.json_response(
+            {"error": str(error), "code": error.code, "details": error.details},
+            status=status,
+        )
+    if isinstance(error, json.JSONDecodeError):
+        return web.json_response({"error": "Invalid JSON"}, status=400)
+    if isinstance(error, asyncio.TimeoutError):
+        return web.json_response({"error": "Request timeout"}, status=504)
+    # Любая другая ошибка
+    logger.exception(f"❌ Internal error: {error}")
+    return web.json_response({"error": "Internal server error"}, status=500)
+
+
+async def _run_with_timeout(coro, timeout: float = AGENT_TIMEOUT_SECONDS):
+    """Запускает корутину с таймаутом"""
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        raise asyncio.TimeoutError(f"Request timed out after {timeout}s")
 
 
 class SOCAgentAPIV3:
@@ -153,7 +195,10 @@ class SOCAgentAPIV3:
                 cache={},
             )
 
-            result = await self.orchestrator.route_query(query, context)
+            result = await _run_with_timeout(
+                self.orchestrator.route_query(query, context),
+                timeout=AGENT_TIMEOUT_SECONDS,
+            )
             
             return web.json_response({
                 "query": query,
@@ -164,11 +209,11 @@ class SOCAgentAPIV3:
                 "requires_confirmation": result.requires_confirmation,
             })
 
-        except json.JSONDecodeError:
-            return web.json_response({"error": "Invalid JSON"}, status=400)
+        except (json.JSONDecodeError, SOCAgentError, asyncio.TimeoutError) as e:
+            return _error_response(e)
         except Exception as e:
-            logger.error(f"❌ Ошибка: {e}")
-            return web.json_response({"error": str(e)}, status=500)
+            logger.exception(f"❌ Ошибка обработки запроса: {e}")
+            return _error_response(e)
 
     async def chat_endpoint(self, request: web.Request) -> web.StreamResponse:
         """Chat с SSE поддержкой"""
@@ -204,16 +249,21 @@ class SOCAgentAPIV3:
                 llm_agent=self._llm_agent,
                 cache={},
             )
-            result = await self.orchestrator.route_query(query, context)
+            result = await _run_with_timeout(
+                self.orchestrator.route_query(query, context),
+                timeout=AGENT_TIMEOUT_SECONDS,
+            )
             
             return web.json_response({
                 "response": result.response,
                 "agent": result.data.get("analysis", {}).get("intent", "unknown"),
             })
 
+        except (json.JSONDecodeError, SOCAgentError, asyncio.TimeoutError) as e:
+            return _error_response(e)
         except Exception as e:
-            logger.error(f"❌ Ошибка chat: {e}")
-            return web.json_response({"error": str(e)}, status=500)
+            logger.exception(f"❌ Ошибка chat: {e}")
+            return _error_response(e)
 
     async def _sse_chat(self, query: str, request: web.Request) -> web.StreamResponse:
         """SSE стриминг ответа"""
@@ -425,10 +475,28 @@ async def main():
         port=int(os.getenv("API_PORT", "8080"))
     )
 
+    # Graceful shutdown по SIGTERM/SIGINT
+    loop = asyncio.get_event_loop()
+    shutdown_event = asyncio.Event()
+
+    def _signal_handler():
+        logger.info("📴 Получен сигнал завершения, начинаем shutdown...")
+        shutdown_event.set()
+
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, _signal_handler)
+        except NotImplementedError:
+            # Windows не поддерживает add_signal_handler
+            pass
+
     try:
         await api.start()
+        await shutdown_event.wait()
     except KeyboardInterrupt:
         logger.info("👋 SOC AI Agent API v10 завершил работу")
+    finally:
+        await api._cleanup()
 
 
 if __name__ == "__main__":
