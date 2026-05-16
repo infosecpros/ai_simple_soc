@@ -341,3 +341,108 @@ class TestOrchestrator:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--tb=short"])
+
+# ============================================================
+# Tests: BaseAgent._call_mcp()
+# ============================================================
+
+class TestBaseAgentCallMCP:
+    """Тесты централизованного метода _call_mcp()"""
+
+    def test_has_call_mcp_method(self):
+        """Проверка что метод _call_mcp существует в BaseAgent"""
+        agent = TriageAgent()
+        assert hasattr(agent, '_call_mcp')
+        assert callable(agent._call_mcp)
+
+    @pytest.mark.asyncio
+    async def test_no_context_returns_error(self):
+        """Без контекста — возвращает error dict"""
+        agent = TriageAgent()
+        result = await agent._call_mcp("test_tool")
+        assert isinstance(result, dict)
+        assert "error" in result
+        assert result["code"] == "context_missing"
+
+    @pytest.mark.asyncio
+    async def test_no_mcp_servers_returns_unavailable(self, empty_context):
+        """Без MCP-серверов — возвращает mcp_unavailable"""
+        agent = TriageAgent()
+        agent._context = empty_context
+        result = await agent._call_mcp("nonexistent_tool")
+        assert isinstance(result, dict)
+        assert result["code"] == "mcp_unavailable"
+        assert "nonexistent_tool" in result.get("tool", "")
+
+    @pytest.mark.asyncio
+    async def test_preferred_servers_empty_list(self, empty_context):
+        """Пустой preferred_servers — не пробует никакие серверы"""
+        agent = TriageAgent()
+        agent._context = empty_context
+        result = await agent._call_mcp("test_tool", preferred_servers=[])
+        assert isinstance(result, dict)
+        assert result["code"] == "mcp_unavailable"
+
+    @pytest.mark.asyncio
+    async def test_mcp_server_without_cb_success(self):
+        """MCP-сервер без Circuit Breaker — успешный вызов"""
+        from services.mcp_client import MCPClient
+        from unittest.mock import AsyncMock
+
+        agent = TriageAgent()
+        mock_mcp = AsyncMock(spec=MCPClient)
+        mock_mcp.call_tool.return_value = {"result": "ok"}
+
+        context = AgentContext(
+            mcp_servers={"wazuh-mcp": mock_mcp},
+            circuit_breakers={},
+        )
+        agent._context = context
+        result = await agent._call_mcp("get_alerts", {"limit": 10})
+        assert result == {"result": "ok"}
+        mock_mcp.call_tool.assert_called_once_with("get_alerts", {"limit": 10})
+
+    @pytest.mark.asyncio
+    async def test_mcp_server_fallback_to_next_server(self):
+        """Первый сервер падает — пробует второй"""
+        from services.mcp_client import MCPClient
+        from unittest.mock import AsyncMock
+
+        agent = TriageAgent()
+        mock_mcp1 = AsyncMock(spec=MCPClient)
+        mock_mcp1.call_tool.side_effect = ConnectionError("fail")
+        
+        mock_mcp2 = AsyncMock(spec=MCPClient)
+        mock_mcp2.call_tool.return_value = {"result": "backup_ok"}
+
+        context = AgentContext(
+            mcp_servers={"wazuh-mcp": mock_mcp1, "own-mcp": mock_mcp2},
+            circuit_breakers={},
+        )
+        agent._context = context
+        result = await agent._call_mcp("get_alerts")
+        assert result == {"result": "backup_ok"}
+        mock_mcp1.call_tool.assert_called_once()
+        mock_mcp2.call_tool.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_mcp_server_with_cb_success(self):
+        """MCP-сервер с Circuit Breaker — успешный вызов"""
+        from services.mcp_client import MCPClient
+        from services.circuit_breaker import CircuitBreaker
+        from unittest.mock import AsyncMock
+
+        agent = TriageAgent()
+        mock_mcp = AsyncMock(spec=MCPClient)
+        mock_mcp.call_tool.return_value = {"result": "cb_ok"}
+
+        cb = CircuitBreaker("test", failure_threshold=5, reset_timeout=60)
+
+        context = AgentContext(
+            mcp_servers={"wazuh-mcp": mock_mcp},
+            circuit_breakers={"wazuh-mcp": cb},
+        )
+        agent._context = context
+        result = await agent._call_mcp("get_alerts")
+        assert result == {"result": "cb_ok"}
+        mock_mcp.call_tool.assert_called_once()

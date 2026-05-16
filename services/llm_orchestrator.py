@@ -111,14 +111,14 @@ Previous context:
 
 Analyze this request and respond with your expert analysis."""
 
-        memory_context = self._search_relevant(query)
+        memory_context = await self._search_relevant(query)
         if memory_context:
             enhanced_query += f"\n\nRelevant past knowledge:\n{memory_context}"
 
         result = await self._llm.analyze_query(enhanced_query)
 
         # Сохраняем в память
-        self._memory.store_episode(
+        await self._memory.store_episode(
             session_id="llm_orchestrator",
             role="assistant",
             content=result.reasoning,
@@ -131,12 +131,12 @@ Analyze this request and respond with your expert analysis."""
             "memory_context_used": bool(memory_context),
         }
 
-    def _search_relevant(self, query: str) -> str:
+    async def _search_relevant(self, query: str) -> str:
         """Поиск релевантной информации в памяти"""
         try:
-            episodes = self._memory.search_episodes(query, limit=3)
-            knowledge = self._memory.search_knowledge(query, limit=3)
-            incidents = self._memory.search_incidents(query, limit=2)
+            episodes = await self._memory.search_episodes(query, limit=3)
+            knowledge = await self._memory.search_knowledge(query, limit=3)
+            incidents = await self._memory.search_incidents(query, limit=2)
 
             parts = []
 

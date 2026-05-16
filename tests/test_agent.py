@@ -140,45 +140,54 @@ class TestPromptInjection:
 
 
 class TestLocalMemory:
-    """Тесты Local Memory (каждый тест использует отдельную БД)"""
+    """Тесты Local Memory (каждый тест использует отдельную БД, async)"""
 
-    def test_store_and_retrieve(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_store_and_retrieve(self, tmp_path):
         db = str(tmp_path / "test.db")
         mem = LocalMemory(db_path=db)
+        await mem.initialize()
 
-        mem.store_episode("s1", "user", "Есть ли уязвимости?",
-                          intent="vulnerability_assessment")
+        await mem.store_episode("s1", "user", "Есть ли уязвимости?",
+                                intent="vulnerability_assessment")
 
-        episodes = mem.get_session_episodes("s1")
+        episodes = await mem.get_session_episodes("s1")
         assert len(episodes) >= 1
         assert episodes[0]["intent"] == "vulnerability_assessment"
+        await mem.close()
 
-    def test_knowledge_store(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_knowledge_store(self, tmp_path):
         db = str(tmp_path / "test.db")
         mem = LocalMemory(db_path=db)
+        await mem.initialize()
 
-        mem.store_knowledge("wazuh_version", "4.9.0", category="system")
+        await mem.store_knowledge("wazuh_version", "4.9.0", category="system")
 
-        result = mem.get_knowledge("wazuh_version")
+        result = await mem.get_knowledge("wazuh_version")
         assert result is not None
         assert result["value"] == "4.9.0"
 
-        mem.store_knowledge("wazuh_version", "4.10.0", category="system")
-        result = mem.get_knowledge("wazuh_version")
+        await mem.store_knowledge("wazuh_version", "4.10.0", category="system")
+        result = await mem.get_knowledge("wazuh_version")
         assert result["value"] == "4.10.0"
+        await mem.close()
 
-    def test_search(self, tmp_path):
+    @pytest.mark.asyncio
+    async def test_search(self, tmp_path):
         db = str(tmp_path / "test.db")
         mem = LocalMemory(db_path=db)
+        await mem.initialize()
 
-        mem.store_episode("s1", "user", "Критическая уязвимость CVE-2024-0001 обнаружена",
-                          intent="vulnerability_assessment")
-        mem.store_episode("s1", "user", "Агент 001 не отвечает",
-                          intent="agent_status")
+        await mem.store_episode("s1", "user", "Критическая уязвимость CVE-2024-0001 обнаружена",
+                                intent="vulnerability_assessment")
+        await mem.store_episode("s1", "user", "Агент 001 не отвечает",
+                                intent="agent_status")
 
-        results = mem.search_episodes("CVE-2024")
+        results = await mem.search_episodes("CVE-2024")
         assert len(results) >= 1
         assert "CVE-2024" in results[0]["content"]
+        await mem.close()
 
 
 class TestPydanticModels:

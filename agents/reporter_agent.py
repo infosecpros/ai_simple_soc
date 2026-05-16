@@ -107,7 +107,6 @@ class ReporterAgent(BaseAgent):
             self.INTENT_TOOLS["general_query"]
         )
         
-        context = self._context
         results = []
         for tool_name in plan_config["tools"]:
             plan_params = plan_config.get("params", {})
@@ -115,23 +114,9 @@ class ReporterAgent(BaseAgent):
             if isinstance(plan_params, dict):
                 params.update(plan_params)
             
-            for server_name in ["wazuh-mcp", "own-mcp"]:
-                if context is None or server_name not in context.mcp_servers:
-                    continue
-                cb = (context.circuit_breakers or {}).get(server_name)
-                mcp = (context.mcp_servers or {}).get(server_name)
-                if cb is None or mcp is None:
-                    continue
-                try:
-                    async def _call():
-                        return await mcp.call_tool(tool_name, params)
-                    result = await cb.call(_call)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    logger.warning("tool_failed",
-                                 tool=tool_name, error=str(e))
-                    continue
+            result = await self._call_mcp(tool_name, params)
+            if "error" not in result:
+                results.append(result)
         
         return results
 

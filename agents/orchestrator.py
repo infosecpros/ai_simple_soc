@@ -12,6 +12,7 @@ import time
 import structlog
 
 from agents.base_agent import BaseAgent, AgentContext, AgentResult
+from memory.local_memory import get_memory
 from agents.triage_agent import TriageAgent
 from agents.investigator_agent import InvestigatorAgent
 from agents.responder_agent import ResponderAgent, ApprovalRequest
@@ -42,6 +43,9 @@ class Orchestrator:
         self._llm_agent = llm_agent
         self._mcp_servers = mcp_servers or {}
         self._circuit_breakers = circuit_breakers or {}
+        
+        # Память
+        self._memory = get_memory()
         
         # Агенты
         self._triage = TriageAgent()
@@ -79,6 +83,10 @@ class Orchestrator:
         4. Выполнение и ответ
         """
         start = time.time()
+        
+        # Убеждаемся что memory в контексте
+        if context.memory is None:
+            context.memory = self._memory
         
         # Шаг 1: Triage — быстрое определение намерения
         self._logger.info("routing_start", query=query[:80])

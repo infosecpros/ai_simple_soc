@@ -157,47 +157,18 @@ class ResponderAgent(BaseAgent):
 
     async def _execute_approved(self, approval: ApprovalRequest) -> Dict[str, Any]:
         """Выполнение подтверждённого действия"""
-        context = self._context
-        for server_name in ["wazuh-mcp", "own-mcp"]:
-            if context is None or server_name not in context.mcp_servers:
-                continue
-            mcp = (context.mcp_servers or {}).get(server_name)
-            cb = (context.circuit_breakers or {}).get(server_name)
-            if mcp is None or cb is None:
-                continue
-            try:
-                async def _call():
-                    return await mcp.call_tool(approval.tool, approval.parameters)
-                return await cb.call(_call)
-            except Exception as e:
-                logger.error("approved_action_failed",
-                           tool=approval.tool, error=str(e))
-                return {"error": f"Действие не выполнено: {e}"}
-        
-        return {"error": "Нет доступных MCP серверов"}
+        result = await self._call_mcp(approval.tool, approval.parameters)
+        return result
 
     async def _execute_investigation(self, analysis: AnalysisResult) -> List[Dict[str, Any]]:
         """Read-only investigation (incident_response без active_response)"""
-        context = self._context
         results = []
         tools = self.TOOLS.get("incident_response", [])[:3]  # первые 3 инструмента
         
         for tool_name in tools:
-            for server_name in ["wazuh-mcp", "own-mcp"]:
-                if context is None or server_name not in context.mcp_servers:
-                    continue
-                mcp = (context.mcp_servers or {}).get(server_name)
-                cb = (context.circuit_breakers or {}).get(server_name)
-                if mcp is None or cb is None:
-                    continue
-                try:
-                    async def _call():
-                        return await mcp.call_tool(tool_name, analysis.parameters)
-                    result = await cb.call(_call)
-                    results.append(result)
-                    break
-                except Exception:
-                    continue
+            result = await self._call_mcp(tool_name, analysis.parameters)
+            if "error" not in result:
+                results.append(result)
         
         return results
 

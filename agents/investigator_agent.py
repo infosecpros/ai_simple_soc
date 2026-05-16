@@ -101,7 +101,7 @@ class InvestigatorAgent(BaseAgent):
         Выполнение инструментов для глубокого анализа.
         """
         if analysis.confidence < 0.4:
-            logger.warning("low_confidence", confidence=analysis.confidence)
+            self._logger.warning("low_confidence", confidence=analysis.confidence)
             return [{"warning": "Низкая уверенность в намерении, анализ не выполнен"}]
         
         intent_str = analysis.intent.value
@@ -117,7 +117,7 @@ class InvestigatorAgent(BaseAgent):
         
         for tool_name in plan_config["tools"]:
             if available_names and tool_name not in available_names:
-                logger.debug("tool_not_available", tool=tool_name)
+                self._logger.debug("tool_not_available", tool=tool_name)
                 continue
             
             plan_params = plan_config.get("params", {})
@@ -125,26 +125,9 @@ class InvestigatorAgent(BaseAgent):
             if isinstance(plan_params, dict):
                 params.update(plan_params)
             
-            for server_name in ["wazuh-mcp", "own-mcp"]:
-                if context is None or server_name not in context.mcp_servers:
-                    continue
-                    
-                cb = (context.circuit_breakers or {}).get(server_name)
-                mcp = (context.mcp_servers or {}).get(server_name)
-                
-                if cb is None or mcp is None:
-                    continue
-                
-                try:
-                    async def _call():
-                        return await mcp.call_tool(tool_name, params)
-                    result = await cb.call(_call)
-                    results.append(result)
-                    break
-                except Exception as e:
-                    logger.warning("tool_failed",
-                        tool=tool_name, server=server_name, error=str(e))
-                    continue
+            result = await self._call_mcp(tool_name, params)
+            if "error" not in result:
+                results.append(result)
         
         return results
 
